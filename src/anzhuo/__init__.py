@@ -25,7 +25,13 @@ def _claude_logged_in() -> str:
     r = subprocess.run([str(cli), "auth", "status"], capture_output=True, text=True, timeout=30)
     try:
         j = json.loads(r.stdout)
-        return f"已登录（{j.get('authMethod')}）" if j.get("loggedIn") else "未登录：运行 scripts/claude_login.sh"
+        if j.get("loggedIn"):
+            return f"已登录（{j.get('authMethod')}）"
+        if sys.platform == "darwin":
+            return "未登录：运行 scripts/claude_login.sh"
+        if sys.platform.startswith("win"):
+            return r"未登录：运行 .venv\Lib\site-packages\claude_agent_sdk\_bundled\claude.exe auth login（浏览器里点授权）"
+        return f"未登录：运行 .venv/bin/{cli.name} auth login"
     except json.JSONDecodeError:
         return f"查不到：{r.stdout[:100]}{r.stderr[:100]}"
 
