@@ -6,6 +6,7 @@ from anzhuo import superagent
 from anzhuo.app import Bridge
 from anzhuo.config import Config, load_config
 from anzhuo.dingtalk import Incoming
+from anzhuo.report import Turn
 from anzhuo.sessions import Runner, Session
 
 from test_bridge import FakeDT
@@ -60,9 +61,83 @@ def _bridge(tmp_path, b_ref, pushes, **kw):
     return b
 
 
+def test_acp_text_protocol_parse():
+    """ACP 文本命令：派活/转话/查一查 解析成动作；回报/要用户定/退回 解析成汇报形状。"""
+    acts, kept = superagent.parse_dispatch(
+        "好的，交给 Codex 做。\n【派活】engine=codex；model=gpt-5.1；任务：整理桌面\n"
+        "【转话】#3 你先别动\n查完给你\n【查一查】")
+    assert kept == "好的，交给 Codex 做。\n查完给你"
+    assert acts == [{"kind": "new", "engine": "codex", "model": "gpt-5.1", "task": "整理桌面"},
+                    {"kind": "send", "num": 3, "text": "你先别动"}, {"kind": "list"}]
+    rep = superagent.parse_report_text("做完了。\n【回报】ready：桌面整理好了\n【要用户定】要不要顺便清回收站？")
+    assert rep["report"] == {"state": "ready", "summary": "桌面整理好了", "question": "要不要顺便清回收站？"}
+    assert superagent.parse_report_text("【退回】这不是我的活")["handback"] == "这不是我的活"
+    assert superagent.parse_report_text("没有标记的普通回复") is None
+
+
+def test_acp_router_dispatches_by_text(tmp_path, monkeypatch):
+    """ACP 这类带不了工具的引擎当总管：回复里的【派活】被执行（开对话、boss 指向总管、回复改写成结果）。"""
+    from types import SimpleNamespace as NS
+
+    import anzhuo.engines as engines_mod
+
+    real_get = engines_mod.get
+    fake = NS(has_tools=False, key="fake", label="假")
+    monkeypatch.setattr(engines_mod, "get", lambda key: fake if key == "fake" else real_get(key))
+
+    b_ref = []
+    runs = []
+    _setup(monkeypatch, runs, b_ref)
+    b = _bridge(tmp_path, b_ref, [])
+    router = superagent.find(b)
+    router.engine = "fake"
+
+    turn = Turn(started=0.0)
+    turn.via = "web"
+    turn.final_text = "好的，这就派。\n【派活】engine=claude；任务：整理桌面"
+    asyncio.run(superagent.on_turn_text(b, router, turn))
+
+    workers = [s for s in b.registry.sessions.values() if s.boss == router.num and not s.hidden]
+    assert len(workers) == 1 and workers[0].num != router.num
+    assert "已开 #" in turn.final_text and "【派活】" not in turn.final_text   # 命令行换成结果
+    assert runs and runs[-1][0] == workers[0].num                              # 派的活开工了
+
+
+def test_acp_worker_reports_by_text(tmp_path, monkeypatch):
+    """ACP 工人：回复末尾的【回报】行解析成 sa_report，turn_report 由总管认领（通知改发给总管）。"""
+    from types import SimpleNamespace as NS
+    import anzhuo.engines as engines_mod
+
+    real_get = engines_mod.get
+    fake = NS(has_tools=False, key="fake", label="假")
+    monkeypatch.setattr(engines_mod, "get", lambda key: fake if key == "fake" else real_get(key))
+    b_ref = []
+    runs = []
+    _setup(monkeypatch, runs, b_ref)
+    b = _bridge(tmp_path, b_ref, [])
+    router = superagent.find(b)
+    worker = Session(num=98, name="工人", cwd=str(tmp_path), engine="fake", role="", boss=router.num)
+    b.registry.add(worker)
+
+    turn = Turn(started=0.0, request="做 X")
+    turn.via = superagent.VIA
+    turn.final_text = "搞定了。\n【回报】ready：桌面整理好了"
+    asyncio.run(superagent.on_turn_text(b, worker, turn))
+    assert turn.sa_report == {"state": "ready", "summary": "桌面整理好了", "question": ""}
+
+    async def go():
+        await b.events.emit("turn_done", worker, turn)      # 没有新命令要执行，幂等
+        return await b.events.claim("turn_report", worker, turn)
+
+    claimed = asyncio.run(go())
+    assert claimed is True                                  # 总管接手，不再直接通知用户
+    assert any(r[0] == router.num for r in runs)            # 回报送进了总管
+
+
 def test_router_session_cannot_be_deleted(tmp_path, monkeypatch):
     """列表里的「删除」对总管必须拒绝并说明（删了汇报链就断），普通对话不受影响。"""
     from types import SimpleNamespace as NS
+
 
     from aiohttp.test_utils import TestClient, TestServer
     from anzhuo.web import Web, hash_password

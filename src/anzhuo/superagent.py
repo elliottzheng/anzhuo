@@ -80,6 +80,92 @@ FOLLOW = "\n\n（经{name}转来。先对照你这件事判断：属于这件事
 NUDGE = ("结束前还没汇报。属于这件事：调用 report 工具（state + 一两句 summary，要用户拍板就填 question）；"
          "这句话不属于这件事：调用 handback 工具。调用后再结束。")
 
+# ---- 没有工具的引擎（ACP/Kimi 等，带不了 report/new_session 这些工具）：总管和汇报都走文本命令 ----
+ACP_WORKER_RULES = """
+这件事是“{name}”（总管）派给你的，用户通过它跟你沟通。你没有工具，汇报靠在回复的最后单独写一行：
+- 做完了：【回报】ready：<一两句结论>
+- 这轮做完、等后续消息：【回报】waiting：<进展一句话>
+- 卡住了、要用户给东西/权限/决定：【回报】blocked：<卡在哪、要什么>
+- 做不成：【回报】failed：<为什么>
+- 不用做（已经有人做了、问题不成立）：【回报】dropped：<一句话>
+- 要用户拍板：汇报用 waiting，再单独一行写【要用户定】一个具体问题（可带 A/B/C 选项和推荐），问完能先做的照做。
+- 这句话不属于这件事（是别的新事）：最后单独一行写【退回】<原因>，别的什么都不要做。
+- 这一轮结束前一定记得写汇报行；没写的话总管只能按你的回复大意判断。
+"""
+
+ACP_ROUTER_RULES = """
+你是“{name}”（也就是远窗的总管）。用户只跟你说话，你替用户管其他对话：开新对话派活、把后续的话转给对应的对话、汇总回报。
+你没有工具，派活和转话都靠在回复里写命令行（单独一行，系统会执行并把结果附在回复后面）：
+- 开新对话派活：单独一行写 【派活】任务：<用户的原话>。可在“任务：”前面加分号隔开的可选项：engine=…、model=…、folder=…（只能从下面列出的里面选）。
+- 交给已有对话：单独一行写 【转话】#编号：<要转的原话>。
+- 汇总现状：单独一行写 【查一查】。清单会单独发给你，下一轮再汇总给用户。
+- 派活时把用户的原话原样交出去（可以在前面加一句不超过 30 字的背景，比如“接着 #12 的结果”），不要改写成你自己的计划。
+- 派活前先用【查一查】看看有没有正在做同一件事的对话：用户明确指着某个对话（说了编号、说“刚才那个”且只对得上一个）就用【转话】；只是话题相近，算新的事，用【派活】新开。
+- 你只路由，不亲自干活：不改文件、不跑命令、不上网查、不替对话设计方案或拆步骤，也不凭自己的知识回答用户的问题（知识问答、写东西、出主意都是活）。真正的活都派出去，按分派规则选引擎。
+- 派完在回复里用一句话告诉用户交给了谁（#编号）、用的什么引擎和模型。做完、要用户定、出错时系统会自动把回报发给你。
+- 【回报】（别的对话发来的）：一两句话告诉用户结论和去哪看全文（#编号），不要整段复述；卡住或做不成就说清楚卡在哪、要用户做什么。同一件事已经说过的进展不要重复说。
+- 回报说“卡在额度”：到点它会自动接着做，告诉用户几点恢复就行；离恢复很久时系统会自动换另一家接力（会告诉你新编号）。用户要求换家、或对话太长时，用【查一查】看现状后按规则让 Relay 换家（【转话】给新编号即可）。
+- 【要用户定】（别的对话发来的）：把问题原样转给用户（选项、推荐都带上），一次只问一个。
+- 【退回】：这句话不属于那个对话。重新判断：另开、转别的、或问用户；不要退回去。
+- 用户问“现在都在干嘛”：用【查一查】看一眼，下一轮汇总，只说需要用户关心的。
+- 用户回答了某个对话的问题：用【转话】把用户的原话转过去。用户自己写“#编号 话”直接交给那个对话的，不经过你。
+- 回报里的密码、密钥、令牌、验证码不要写进你的回复，只说“在 #编号 的回复里”。
+"""
+
+REPORT_LINE = re.compile(r"【回报】\s*(ready|waiting|blocked|failed|dropped)\s*[：:]?\s*(.*)")
+HANDBACK_LINE = re.compile(r"【退回】\s*(.+)")
+QUESTION_LINE = re.compile(r"【要用户定】\s*(.+)")
+DISPATCH_LINE = re.compile(r"【派活】\s*(.+)")
+SEND_LINE = re.compile(r"【转话】\s*#(\d+)\s*[：:]?\s*(.*)")
+LIST_LINE = re.compile(r"^【查一查】\s*$")
+
+
+def parse_report_text(text: str) -> dict | None:
+    """ACP 这类没有工具的工人的回复：解析【回报】/【要用户定】/【退回】行 → 和 report/handback 工具相同的形状。
+    什么都没写就返回 None（总管按回复大意判断）。"""
+    rep, question, back = None, "", None
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if (m := HANDBACK_LINE.match(line)):
+            back = m.group(1).strip() or "不属于这件事"
+        elif (m := REPORT_LINE.match(line)):
+            rep = {"state": m.group(1), "summary": m.group(2).strip()[:1000], "question": ""}
+        elif (m := QUESTION_LINE.match(line)):
+            question = m.group(1).strip()[:2000]
+            if rep:
+                rep["question"] = question
+    if question and rep and not rep["question"]:
+        rep["question"] = question
+    if question and not rep:
+        rep = {"state": "waiting", "summary": question, "question": question}
+    return {"report": rep, "handback": back} if (rep or back) else None
+
+
+def parse_dispatch(text: str) -> tuple[list[dict], str]:
+    """ACP 总管的回复：解析【派活】/【转话】/【查一查】命令行 → 动作列表；返回 (动作, 去掉命令行的正文)。"""
+    actions, kept = [], []
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if (m := DISPATCH_LINE.match(line)):
+            task, kv = [], {}
+            for seg in re.split(r"[；;]", m.group(1)):
+                seg = seg.strip()
+                if not seg:
+                    continue
+                if (mm := re.match(r"(engine|model|folder)\s*=\s*(.+)", seg, re.I)):
+                    kv[mm.group(1).lower()] = mm.group(2).strip()
+                else:
+                    task.append(re.sub(r"^任务[:：]\s*", "", seg))
+            if task:
+                actions.append({"kind": "new", **kv, "task": "；".join(task)})
+        elif (m := SEND_LINE.match(line)):
+            actions.append({"kind": "send", "num": int(m.group(1)), "text": m.group(2).strip()})
+        elif LIST_LINE.match(line):
+            actions.append({"kind": "list"})
+        else:
+            kept.append(raw)
+    return actions, "\n".join(kept)
+
 
 def must_report(turn, nudged: bool) -> str:
     """总管派的这一轮要结束了却没汇报也没退回：拦一次，让它补上。"""
@@ -184,9 +270,13 @@ def role(bridge: "Bridge", s: Session | None) -> dict | None:
     if not (bridge.cfg.super_agent and s):
         return None
     if s.role == ROUTER:
+        if not engines.get(s.engine).has_tools:   # ACP 这类带不了工具的：总管用文本命令派活（【派活】/【转话】/【查一查】）
+            return {"append": ACP_ROUTER_RULES.format(name=s.name) + folder_hint(bridge) + engine_hint(bridge, text=True)}
         return {"tools": tools(bridge, s), "append": RULES.format(name=s.name) + folder_hint(bridge) + engine_hint(bridge),
                 "disallowed": DISALLOWED, "builtin": BUILTIN, "deny_reason": DENY_REASON, "own_slot": True}
     if router := boss_of(bridge, s):
+        if not engines.get(s.engine).has_tools:   # 文本汇报：结束回复前写【回报】行（见 ACP_WORKER_RULES）
+            return {"append": ACP_WORKER_RULES.format(name=router.name)}
         return {"tools": worker_tools(bridge, s), "append": WORKER_RULES.format(name=router.name), "on_stop": must_report}
     return None
 
@@ -207,13 +297,14 @@ def catalog(bridge: "Bridge") -> dict[str, dict]:
     return out
 
 
-def engine_hint(bridge: "Bridge") -> str:
+def engine_hint(bridge: "Bridge", text: bool = False) -> str:
     lines = []
     for k, v in catalog(bridge).items():
         models = f"model 可填：{'、'.join(v['models'])}" if v["models"] else "model 不用填"
-        lines.append(f"  - engine={k}（{v['name']}）：{models}；不填 model 时：{v['default']}")
+        lines.append(f"  - {('engine=…；model=…；' if text else 'engine=')}{k}（{v['name']}）：{models}；不填 model 时：{v['default']}")
     rules = (bridge.cfg.super_agent_routing or "").strip()
-    return ("- 这台电脑上能用的引擎和模型（new_session 的 engine / model 只能从这里选）：\n" + "\n".join(lines) + "\n"
+    where = "【派活】里的 engine / model" if text else "new_session 的 engine / model"
+    return (f"- 这台电脑上能用的引擎和模型（{where}只能从这里选）：\n" + "\n".join(lines) + "\n"
             + (f"- 用户定的分派规则（没点名时照这个选引擎和模型）：\n{rules}\n" if rules else "- 用户没定分派规则：没点名就都不填。\n"))
 
 
@@ -416,6 +507,43 @@ def worker_tools(bridge: "Bridge", s: Session) -> list:
     return [report, handback]
 
 
+# ---------- 没有工具的引擎（ACP）：从回复文字里解析总管的命令和工人的汇报 ----------
+
+async def on_turn_text(bridge: "Bridge", s: Session, turn) -> None:
+    """turn_done 早期（报告写好之前）跑：ACP 这类带不了工具的引擎，总管的【派活】/【转话】/【查一查】
+    和工人的【回报】/【要用户定】/【退回】都从回复文字里解析。工具引擎（Claude/Codex）在工具里就已经设好
+    turn.sa_report / sa_handback，这里直接跳过。"""
+    if not bridge.cfg.super_agent or engines.get(s.engine).has_tools:
+        return
+    if s.role == ROUTER:
+        actions, kept = parse_dispatch(turn.final_text or "")
+        if not actions:
+            return
+        handlers = {t.name: t.handler for t in tools(bridge, s)}
+        keys = {"new": "new_session", "send": "send_to_session", "list": "list_sessions"}
+        results = []
+        for a in actions:
+            args = {k: v for k, v in a.items() if k in ("task", "engine", "model", "folder", "num", "text") and v not in (None, "")}
+            try:
+                res = await handlers[keys[a["kind"]]](args)
+                results.append("→ " + res["content"][0]["text"].splitlines()[0][:200])
+            except Exception as exc:  # noqa: BLE001 - 单条派活失败不影响别的
+                results.append("→ 出错了：" + str(exc)[:200])
+        body = kept.strip()
+        turn.final_text = ((body + "\n\n") if body else "") + "\n".join(results)
+        turn.timeline.append({"t": time.time(), "kind": "do",
+                              "text": "已执行 " + "、".join(f"【{a['kind']}】" for a in actions)})
+        return
+    if boss_of(bridge, s):
+        parsed = parse_report_text(turn.final_text or "")
+        if not parsed:
+            return
+        if parsed.get("handback"):
+            turn.sa_handback = parsed["handback"]
+        if parsed.get("report"):
+            turn.sa_report = parsed["report"]
+
+
 # ---------- 一轮做完 ----------
 
 def _files(turn) -> str:
@@ -445,7 +573,9 @@ def report_text(s: Session, turn, rep: dict | None = None) -> str:
 
 
 def attach(bridge: "Bridge") -> None:
-    """总管订阅的事件：一轮做完由它来说（turn_report）、接力后交接派活关系（relayed）。"""
+    """总管订阅的事件：一轮做完由它来说（turn_report）、接力后交接派活关系（relayed）。
+    turn_done 更早一层：没有工具的引擎（ACP）从回复文字里解析命令和汇报（要在报告写好之前改写）。"""
+    bridge.events.on("turn_done", lambda s, turn: on_turn_text(bridge, s, turn), order=5)
     bridge.events.on("turn_report", lambda s, turn: on_turn_done(bridge, s, turn), order=10)
     bridge.events.on("relayed", lambda p, s: on_relayed(bridge, p, s))
 
@@ -543,5 +673,6 @@ async def recover(bridge: "Bridge", interrupted: list[int]) -> None:
             await bridge.submit(s, RECOVER, _incoming(RECOVER, VIA))
     for num in routers:
         if router := bridge.registry.get(num):
-            await tell(bridge, router, "【重启】远窗重启了，打断了你上一轮。用 list_sessions 看看现状；被打断的对话已经在接着做了，"
+            look = "用【查一查】看看各对话现状" if not engines.get(router.engine).has_tools else "用 list_sessions 看看现状"
+            await tell(bridge, router, f"【重启】远窗重启了，打断了你上一轮。{look}；被打断的对话已经在接着做了，"
                                        "有需要用户知道的再说，没有就一句话说明已恢复。")
