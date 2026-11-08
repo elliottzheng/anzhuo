@@ -60,6 +60,39 @@ def _bridge(tmp_path, b_ref, pushes, **kw):
     return b
 
 
+def test_router_session_cannot_be_deleted(tmp_path, monkeypatch):
+    """列表里的「删除」对总管必须拒绝并说明（删了汇报链就断），普通对话不受影响。"""
+    from types import SimpleNamespace as NS
+
+    from aiohttp.test_utils import TestClient, TestServer
+    from anzhuo.web import Web, hash_password
+
+    b_ref = []
+    _setup(monkeypatch, [], b_ref)
+    b = _bridge(tmp_path, b_ref, [])
+    router = superagent.ensure(b)
+    worker = Session(num=99, name="工人", cwd=str(tmp_path), role="")
+    b.registry.add(worker)
+
+    w = Web("http://x.example", 0, tmp_path, user="u", pw_hash=hash_password("pw", iters=1000))
+    w.bridge = NS(registry=b.registry, runner=NS(turns={}, busy=lambda num: False))
+
+    async def go():
+        c = TestClient(TestServer(w.app()))
+        await c.start_server()
+        try:
+            await c.post("/_x/login", data={"username": "u", "password": "pw"})
+            r = await c.post(f"/_x/api/manage/{router.num}", json={"action": "delete"})
+            assert r.status == 400 and "总管" in (await r.json())["error"]
+            assert not router.hidden                                    # 总管没被动
+            r = await c.post("/_x/api/manage/99", json={"action": "delete"})
+            assert r.status == 200 and worker.hidden                    # 普通对话照常收起
+        finally:
+            await c.close()
+
+    asyncio.run(go())
+
+
 def test_off_by_default(tmp_path):
     p = tmp_path / "c.toml"
     p.write_text("")

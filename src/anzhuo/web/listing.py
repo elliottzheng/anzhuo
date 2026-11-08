@@ -10,7 +10,7 @@ from pathlib import Path
 
 from aiohttp import web
 
-from .. import quota, schedules, usage, task_groups
+from .. import quota, schedules, superagent, usage, task_groups
 from ..sessions import Session
 from ..folders import display, readable
 from ..report import LIMIT_CN
@@ -202,6 +202,11 @@ class ListingMixin:
             for member in self._relay_chain(s):
                 member.task_group, member.task_group_manual = val, True
         elif act == "delete":
+            if s.role == superagent.ROUTER:
+                # 总管由 super_agent 功能管理（启动时 ensure 自动找回）：
+                # 删了它工人的汇报链就断，直到下次重启才复活 —— 明确拒绝并说明。
+                return web.json_response({"ok": False,
+                                          "error": "总管删不掉：收起即可（找回就重启远窗，或关掉再开 super_agent）"}, status=400)
             if s.num in b.runner.turns or b.runner.busy(s.num):
                 return web.json_response({"ok": False, "error": "还在做，先停下再删"})
             await self.speech.remove_session(s.num)
