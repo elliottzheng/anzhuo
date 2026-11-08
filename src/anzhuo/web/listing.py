@@ -206,7 +206,7 @@ class ListingMixin:
                 # 总管由 super_agent 功能管理（启动时 ensure 自动找回）：
                 # 删了它工人的汇报链就断，直到下次重启才复活 —— 明确拒绝并说明。
                 return web.json_response({"ok": False,
-                                          "error": "总管删不掉：收起即可（找回就重启远窗，或关掉再开 super_agent）"}, status=400)
+                                          "error": "总管删不掉：收起即可（重启远窗会自动置顶找回）"}, status=400)
             if s.num in b.runner.turns or b.runner.busy(s.num):
                 return web.json_response({"ok": False, "error": "还在做，先停下再删"})
             await self.speech.remove_session(s.num)

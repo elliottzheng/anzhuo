@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from anzhuo import folders, report
@@ -238,6 +240,13 @@ def test_guard_danger():
     assert danger("git status && git diff && ls -la") is None
     assert danger("git restore --staged a.py") is None and danger("git restore a.py")
     assert danger("echo 'firmware' && grep -rn form .") is None
+    if os.name == "nt":   # Windows 部署：cmd / PowerShell 的同类危险命令也要拦
+        assert danger("del /f /s /q C:\\Users\\me\\Documents") and danger("rd /s /q C:\\temp\\x")
+        assert danger("Remove-Item -Recurse -Force C:\\重要资料") and danger("reg delete HKLM\\xx /f")
+        assert danger("shutdown /s /t 0") and danger("Stop-Service -Name Spooler")
+        assert danger("format D: /FS:NTFS") and danger("diskpart")
+        assert danger("Get-ChildItem *.txt | Format-Table") is None   # Format-Table 不是 format 盘符
+        assert danger("git status && dir") is None                    # dir 本身不危险
 
 
 def test_guard_hook_waits_for_answer():

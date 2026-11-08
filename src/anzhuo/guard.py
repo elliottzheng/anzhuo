@@ -2,11 +2,28 @@
 先停下来在手机 / 钉钉 / 网页上问你一句，允许了才做。这里只负责认出哪些命令算危险、说成人话。"""
 from __future__ import annotations
 
+import os
 import re
 import shlex
 
 # 临时目录里删东西不打扰你
 _TMP = ("/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/")
+
+_WIN_RULES: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"\bdel\b", re.I), "删除文件（del）"),
+    (re.compile(r"\b(rd|rmdir)\b", re.I), "删除目录（rd / rmdir）"),
+    (re.compile(r"\bRemove-Item\b|\bri\s+\S", re.I), "删除文件或目录（Remove-Item）"),
+    (re.compile(r"\bClear-Content\b", re.I), "清空文件内容（Clear-Content）"),
+    (re.compile(r"\bformat(\.com)?\s+[a-z]:", re.I), "改磁盘（format 盘符）"),
+    (re.compile(r"\bdiskpart\b", re.I), "改磁盘（diskpart）"),
+    (re.compile(r"\breg\s+(delete|add|import|restore)\b", re.I), "改注册表（reg delete / add / import）"),
+    (re.compile(r"\b(shutdown|logoff)\b", re.I), "关机或注销（shutdown、logoff）"),
+    (re.compile(r"\b(Stop-Computer|Restart-Computer|Restart-Service|Stop-Service)\b", re.I), "关机、重启电脑或停掉系统服务"),
+    (re.compile(r"\b(sc\s+(stop|delete|config)|wmic\s+\S+\s+delete)\b", re.I), "停掉或删改系统服务（sc、wmic）"),
+    (re.compile(r"\bSet-ExecutionPolicy\b", re.I), "改脚本执行策略（Set-ExecutionPolicy）"),
+    (re.compile(r"\bicacls\b", re.I), "改文件权限（icacls）"),
+    (re.compile(r"\bcipher\s+/w\b", re.I), "抹除已删除文件的残留数据（cipher /w）"),
+]
 
 _RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bgit\s+push\b"), "推送代码到远端（git push）"),
@@ -40,9 +57,10 @@ def _rm_targets(cmd: str) -> list[str]:
 
 
 def danger(cmd: str) -> str | None:
-    """这条命令危险就返回一句人话（做什么），否则 None。"""
+    """这条命令危险就返回一句人话（做什么），否则 None。Windows 上额外认 del / rd / Remove-Item / reg / shutdown 这类。"""
     cmd = cmd or ""
-    for pat, what in _RULES:
+    rules = _RULES + _WIN_RULES if os.name == "nt" else _RULES
+    for pat, what in rules:
         if pat.search(cmd):
             return what
     targets = _rm_targets(cmd)
