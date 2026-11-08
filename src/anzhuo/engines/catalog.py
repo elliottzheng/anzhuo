@@ -44,9 +44,14 @@ def by_key(key: str | None) -> Engine | None:
 
 
 def engine_of(pick: str | None) -> str | None:
-    """选的“模型”→ 要换成的引擎名：gpt → codex，kimi → kimi；Claude 的型号（或没选）返回 None，照常用 Claude。"""
-    e = by_key(pick)
-    return e.name if e and e.pick_model != "menu" else None
+    """选的“模型”→ 要换成的引擎名：gpt → codex，kimi → kimi，kimi-k2 这类具体型号 → kimi；
+    Claude 的型号（或没选）返回 None，照常用 Claude。"""
+    if e := by_key(pick):
+        return e.name if e.pick_model != "menu" else None
+    for e in known():
+        if e.pick_model == "own" and pick in (e.models()[0] or []):   # ACP/Kimi 探到的具体型号
+            return e.name
+    return None
 
 
 def switches(pick: str | None, engine: str) -> bool:
@@ -55,5 +60,16 @@ def switches(pick: str | None, engine: str) -> bool:
 
 
 def can_switch_model(engine: str, pick: str | None) -> bool:
-    """这个对话中途能不能换成这个型号：只有按型号表选的（Claude）能换，而且不能换成别家。"""
-    return bool(pick) and not engine_of(pick) and get(engine).pick_model == "menu"
+    """这个对话中途能不能换成这个型号：Claude 按型号表换；ACP/Kimi 换成它自己见过的型号也行；换家（gpt、kimi 这类引擎名）不行。"""
+    if not pick:
+        return False
+    resolved = engine_of(pick)
+    if resolved and resolved != get(engine).name:   # 引擎名或别家的型号 = 换家，已有对话不允许
+        return False
+    eng = get(engine)
+    if eng.pick_model == "menu":   # Claude：型号表里的（opus… 短名或 claude-… 全名）
+        low = pick.lower()
+        return bool(MODELS.get(low)) or low in set(MODELS.values())
+    if eng.pick_model == "own":    # Kimi 等：它自己见过的型号（启动时探到的）
+        return pick in (eng.models()[0] or [])
+    return False

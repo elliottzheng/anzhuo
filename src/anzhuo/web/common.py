@@ -60,14 +60,23 @@ def display_model(model_id: str) -> str:
         return "Claude " + label if label != mid else mid
     if mid.lower().startswith("gpt-"):
         return "GPT-" + mid[4:].replace("-", " ").title()
+    if mid.lower().startswith("kimi-"):
+        return "Kimi " + mid[5:].replace("-", " ").title()
     return mid
 
 
 def model_options() -> list[list[str]]:
     from ..codex import configured_model
-    return [[key, display_model(MODELS[key])] for key in ("opus", "sonnet", "haiku", "fable")] + [
-        [e.key, (display_model(configured_model()) or e.label) if e is engines.CODEX else e.label]
-        for e in engines.known() if e.pick_model == "own" and (e is engines.CODEX or e.available())]
+    out = [[key, display_model(MODELS[key])] for key in ("opus", "sonnet", "haiku", "fable")]
+    for e in engines.known():
+        if e.pick_model != "own" or not (e is engines.CODEX or e.available()):
+            continue
+        if e is engines.CODEX:   # Codex：型号那一栏写引擎键，用它自己配置的默认型号
+            out.append([e.key, (display_model(configured_model()) or e.label)])
+            continue
+        out.append([e.key, e.label])   # ACP 助手：选它 = 用它自己配置的默认型号
+        out += [[m, display_model(m)] for m in (e.models()[0] or [])]   # 探到的具体型号也能选
+    return out
 
 def _md(text: str) -> str:
     """回复里的 Markdown 粗略转成 HTML：转义后只处理加粗、行内代码和链接，其余保留换行。"""

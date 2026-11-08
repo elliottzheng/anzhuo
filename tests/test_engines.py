@@ -40,6 +40,12 @@ def test_pick_keys_to_engines(monkeypatch):
     assert not engines.can_switch_model("claude", "gpt") and not engines.can_switch_model("claude", "kimi")
     assert not engines.can_switch_model("codex", "claude-sonnet-5-5") and not engines.can_switch_model("kimi", "claude-sonnet-5-5")
     assert not engines.can_switch_model("claude", None)
+    # ACP/Kimi：启动时探到的具体型号，中途也能换；别家的型号不行
+    monkeypatch.setitem(acp.ENGINES, "kimi", {"name": "Kimi", "cmd": ["kimi", "acp"]})
+    monkeypatch.setattr(acp, "MODELS_SEEN", {"kimi": {"models": ["kimi-k2", "kimi-k2-thinking"], "current": "kimi-k2"}})
+    assert engines.engine_of("kimi-k2") == "kimi" and engines.engine_of("kimi-k2-thinking") == "kimi"
+    assert engines.can_switch_model("kimi", "kimi-k2") and engines.can_switch_model("kimi", "kimi-k2-thinking")
+    assert not engines.can_switch_model("kimi", "claude-sonnet-5-5") and not engines.can_switch_model("claude", "kimi-k2")
 
 
 def test_policy_judges_commands_and_files():

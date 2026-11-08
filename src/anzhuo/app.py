@@ -443,9 +443,8 @@ class Bridge:
         from .codex import codex_bin, probe_models
         if codex_bin():   # 记下 Codex 能用哪些型号（Sol / Terra / Luna …），网页、总管选型号用
             asyncio.create_task(probe_models())
-        if self.cfg.super_agent:   # 记下各个 ACP 助手有哪些模型，总管派活时能挑
-            from .acp import probe_all
-            asyncio.create_task(probe_all(str(self.data_dir / "router")))
+        from .acp import probe_all   # 记下各个 ACP 助手有哪些模型（网页选型号、总管派活都能挑），不说话不花额度
+        asyncio.create_task(probe_all(str(self.data_dir / "router")))
         if self.cfg.super_agent and self.interrupted:   # 总管派出去、重启前没做完的活：带恢复提示接着做
             asyncio.create_task(superagent.recover(self, self.interrupted))
         self.quota.resume_waiting()   # 重启前撞了额度在等恢复的，接着等

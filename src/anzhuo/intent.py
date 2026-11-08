@@ -75,6 +75,8 @@ def inline_overrides(text: str) -> tuple[str | None, str | None]:
         model = "gpt"
     elif re.search(r"(?:用|交给|让)\s*deepseek", text, re.I):
         model = "deepseek"
+    elif (m := re.search(r"(?:用|换成|改用|切到)\s*(kimi-\S+)", text, re.I)):   # ACP 的具体型号
+        model = m.group(1)
     elif re.search(r"(?:用|交给|让)\s*kimi", text, re.I):   # ACP 引擎：模型那一栏就写引擎名
         model = "kimi"
     if m := re.search(r"(?:深度|思考)\s*(?:调到|调成|改成|设为|用|开)?\s*(很高|最高|低|中|高)", text):
@@ -93,6 +95,9 @@ def said_engine_model(engine: str, text: str) -> str | None:
         return next((x for x in models if m and m.group(1).lower() in x.lower()), None)
     if engine == engines.DEEPSEEK.name and re.search(r"deepseek\S{0,3}\s*(?:用\s*)?(?:v4[- ]?)?pro", text, re.I):
         return next((x for x in models if "pro" in x), None)
+    eng = engines.get(engine)
+    if eng.pick_model == "own":   # 其他自报型号的引擎（ACP/Kimi 等）：话里提到哪个型号就用哪个
+        return next((x for x in models if re.search(re.escape(x), text, re.I)), None)
     return None
 
 

@@ -114,6 +114,8 @@ def test_model_choice(tmp_path):
     assert inline_overrides("这次用 Opus，深度调到高") == ("claude-opus-5-5", "high")
     assert inline_overrides("帮我查天气") == (None, None)
     assert inline_overrides("思考最高，改用sonnet") == ("claude-sonnet-5-5", "max")
+    assert inline_overrides("用 kimi-k2-thinking 深度调研") == ("kimi-k2-thinking", None)
+    assert inline_overrides("换成 kimi-k2 快速看一眼") == ("kimi-k2", None)
     (tmp_path / "repo" / ".git").mkdir(parents=True)
     (tmp_path / "repo" / "src").mkdir()
     assert _looks_like_project(tmp_path / "repo" / "src") and not _looks_like_project(tmp_path)
