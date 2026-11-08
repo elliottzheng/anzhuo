@@ -521,6 +521,7 @@ async def on_turn_text(bridge: "Bridge", s: Session, turn) -> None:
             return
         handlers = {t.name: t.handler for t in tools(bridge, s)}
         keys = {"new": "new_session", "send": "send_to_session", "list": "list_sessions"}
+        names = {"new": "已派新对话", "send": "已转话", "list": "已查现状"}
         results = []
         for a in actions:
             args = {k: v for k, v in a.items() if k in ("task", "engine", "model", "folder", "num", "text") and v not in (None, "")}
@@ -532,7 +533,7 @@ async def on_turn_text(bridge: "Bridge", s: Session, turn) -> None:
         body = kept.strip()
         turn.final_text = ((body + "\n\n") if body else "") + "\n".join(results)
         turn.timeline.append({"t": time.time(), "kind": "do",
-                              "text": "已执行 " + "、".join(f"【{a['kind']}】" for a in actions)})
+                              "text": "、".join(names[a["kind"]] for a in actions)})
         return
     if boss_of(bridge, s):
         parsed = parse_report_text(turn.final_text or "")

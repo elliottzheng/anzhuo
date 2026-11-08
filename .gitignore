@@ -14,3 +14,6 @@ config.toml
 err.log
 out.log
 supervisor_err.log
+
+# 本机调试残留
+.smoke-data/
