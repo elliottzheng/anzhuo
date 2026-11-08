@@ -179,7 +179,8 @@ class Web(AuthMixin, AudioMixin, TurnsMixin, ThreadsMixin, ListingMixin, Actions
         if q["rate"] and q["rate"] != self.store.get("rate2"):   # rate2：2026-11-04 之前存的 rate 是按累计值算错的，不用
             self.store["rate2"] = q["rate"]
             self._save()
-        q["reset"] = time.strftime("%-m月%-d日 %H:%M", time.localtime(q["reset_at"])) if q["reset_at"] else ""
+        t = time.localtime(q["reset_at"]) if q["reset_at"] else None   # 不用 %-m：Windows 的 strftime 不认
+        q["reset"] = f"{t.tm_mon}月{t.tm_mday}日 {t.tm_hour:02d}:{t.tm_min:02d}" if t else ""
         return q
 
     def over_quota(self, acct: str) -> str:

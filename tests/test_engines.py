@@ -77,10 +77,12 @@ def test_policy_approve_asks_only_when_dangerous():
 
 
 def test_acp_permission_target():
+    import os
+    norm = lambda ps: [p.replace(os.sep, "/") for p in ps]
     known = {"kind": "move", "rawInput": {"source": "a.txt", "destination": "/Users/demo/b.txt"}}
-    assert permission_target("move", known, known, "/work") == ["/work/a.txt", "/Users/demo/b.txt"]
+    assert norm(permission_target("move", known, known, "/work")) == ["/work/a.txt", "/Users/demo/b.txt"]
     titled = {"kind": "delete", "title": "Deleting /Users/demo/c.txt"}
-    assert permission_target("delete", {}, titled, "/work") == ["/Users/demo/c.txt"]
+    assert norm(permission_target("delete", {}, titled, "/work")) == ["/Users/demo/c.txt"]
     run = {"kind": "execute", "title": "Bash", "rawInput": {"command": "git push"}}
     assert permission_target("execute", run, run, "/work") == "git push"
     assert permission_target("edit", {}, {}, "/work") == ""

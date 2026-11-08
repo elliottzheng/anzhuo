@@ -10,3 +10,7 @@ config.toml
 .venv-tts/
 
 .ruff_cache/
+# 运行日志（计划任务守护产生）
+err.log
+out.log
+supervisor_err.log

@@ -1,6 +1,7 @@
 """ACP 引擎（Kimi 等）：用一个假的 ACP 助手（tests/fake_acp_agent.py）走一遍，不连真的 Kimi。"""
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -224,12 +225,14 @@ def test_unknown_command_asks(tmp_path, fake, monkeypatch):
     asyncio.run(go())
 
 
+@pytest.mark.skipif(os.name == "nt", reason="/tmp 临时目录语义仅 POSIX；Windows 上保守地转为询问")
 def test_acp_move_and_delete_paths():
     """挪文件源和目标都判、看不出挪到哪也问你；参数里的路径列表也算。"""
     from anzhuo.engines.acp import permission_target
+    norm = lambda ps: [p.replace(os.sep, "/") for p in ps]   # Windows 上还原成 POSIX 形态好比较
     home = str(Path.home())
     one = permission_target("move", {"rawInput": {"source": "/tmp/a"}}, {}, "/w")
-    assert one == ["/tmp/a"] and "看不出" in policy.danger("move", one)
+    assert norm(one) == ["/tmp/a"] and "看不出" in policy.danger("move", one)
     two = permission_target("move", {"rawInput": {"source": "/tmp/a", "destination": "/tmp/b"}}, {}, "/w")
     assert policy.danger("move", two) is None
     out = permission_target("move", {"rawInput": {"src": "/tmp/a", "to": f"{home}/Documents/b"}}, {}, "/w")
@@ -261,6 +264,7 @@ def test_codex_close_cancels_tasks():
         await conn.close()
         await asyncio.sleep(0)
         assert t.cancelled() and not conn._tasks
+@pytest.mark.skipif(os.name == "nt", reason="/Users/demo 与 /tmp 判定语义仅 macOS")
 def test_delete_judged_like_rm(tmp_path, fake, monkeypatch):
     """删文件和 Claude 那边的 rm 同一套规则：工作区外的要问你，不同意就拒；临时目录里的照旧放行。"""
     asked = []

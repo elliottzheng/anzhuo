@@ -1035,8 +1035,9 @@ def test_quota_rows_carry_eta_and_pace(monkeypatch):
     import time
     now = datetime.datetime(2026, 11, 8, 12, 0).timestamp()
     monkeypatch.setattr(time, "time", lambda: now)
-    week_reset = datetime.datetime.fromtimestamp(now + 3.5 * 86400).strftime("%-m月%-d日 %H:%M")
-    five_reset = datetime.datetime.fromtimestamp(now + 4 * 3600).strftime("%-m月%-d日 %H:%M")
+    fmt = lambda ts: (lambda t: f"{t.month}月{t.day}日 {t.hour:02d}:{t.minute:02d}")(datetime.datetime.fromtimestamp(ts))
+    week_reset = fmt(now + 3.5 * 86400)
+    five_reset = fmt(now + 4 * 3600)
     week, five = Web._limits({"seven_day": (.8, week_reset), "five_hour": (.1, five_reset)})
     assert week["eta"] and now < week["eta"] < week["reset_at"] and week["level"] == "告急"
     assert five["eta"] is None and five["pace"] == 50 and five["level"] == "充足"   # 已过 20%（下限）用了 10% → 到重置约 50%

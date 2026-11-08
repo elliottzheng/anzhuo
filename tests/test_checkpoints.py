@@ -7,6 +7,7 @@ def setup(tmp_path):
     root = tmp_path / 'work'; root.mkdir()
     return root, Checkpoints(tmp_path / 'snapshots')
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX 权限位在 Windows 上无意义")
 def test_restore_create_modify_delete_and_undo(tmp_path):
     root, store = setup(tmp_path)
     (root/'中文.bin').write_bytes(b'\x00old\xff')
@@ -55,6 +56,7 @@ def test_multi_turn_and_undo_conflict(tmp_path):
     with pytest.raises(ValueError):store.undo(undo)
     assert f.read_text()=='human'
 
+@pytest.mark.skipif(os.name == "nt", reason="创建符号链接需要特权 (WinError 1314)")
 def test_symlink_parent_cannot_escape(tmp_path):
     root, store = setup(tmp_path)
     folder=root/'folder';folder.mkdir();(folder/'a').write_text('old')

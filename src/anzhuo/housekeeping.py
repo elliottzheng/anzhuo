@@ -67,5 +67,5 @@ async def monthly_checkup(b: Bridge) -> None:
     await b.start_session(num, Path.home(), [], CHECKUP, inc, note="（每月清理体检，自动派的）", kind="simple",
                           model=MODELS["sonnet"], effort="low")
     if s := b.registry.get(num):
-        s.name, s.renamed = f"{time.strftime('%-m')} 月清理体检", True
+        s.name, s.renamed = f"{time.localtime().tm_mon} 月清理体检", True
         b.registry.save()

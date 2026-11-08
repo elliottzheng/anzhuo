@@ -1,8 +1,11 @@
 """两个网页账号：admin 全部权限；user 只在自己的文件夹里干活，两边互相看不到对话；管理页看登录和消耗；user 有周额度上限。"""
 import asyncio
 import json
+import os
 import time
 from pathlib import Path
+
+import pytest
 from types import SimpleNamespace as NS
 
 from aiohttp.test_utils import TestClient, TestServer
@@ -105,7 +108,8 @@ def test_user_starts_in_own_folder_and_quota(tmp_path):
             assert (root / "收到的附件").is_dir() and any((root / "收到的附件").iterdir())
             # 本周用了主账号周额度的 25%（比例：每 $1 = 1%）→ 超过 1/5，不能再开始
             now = time.time()
-            b.runner.limits = {"seven_day": (0.3, time.strftime("%-m月%-d日 %H:%M", time.localtime(now + 86400)))}
+            lt = time.localtime(now + 86400)
+            b.runner.limits = {"seven_day": (0.3, f"{lt.tm_mon}月{lt.tm_mday}日 {lt.tm_hour:02d}:{lt.tm_min:02d}")}
             rows = [{"t": now - 3000, "owner": "admin", "num": a.num, "engine": "claude", "cost": 1, "limits": {"seven_day": 5}},
                     {"t": now - 2000, "owner": "user", "num": s.num, "engine": "claude", "cost": 25, "limits": {"seven_day": 30}}]
             b.web.usage_path.parent.mkdir(parents=True, exist_ok=True)
@@ -119,6 +123,7 @@ def test_user_starts_in_own_folder_and_quota(tmp_path):
     asyncio.run(go())
 
 
+@pytest.mark.skipif(os.name == "nt", reason="受限账号与符号链接钩子仅支持 macOS")
 def test_fence_hook_and_settings(tmp_path, monkeypatch):
     home = tmp_path / "home"
     root = home / "remote-window"
